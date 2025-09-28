@@ -169,7 +169,7 @@ def ds_tool_intro(name: str, api_key: str) -> str:
         found = next((ln for ln in lines if ln.startswith(k)), None)
         clean.append(found or (k + " "))
 
-    clean[3] = f"لینک گیت هاب:\n{make_github_link(name)}\n🆔 {CHANNEL_ID}"
+    clean[3] = f"لینک گیت هاب:\n{make_github_link(name)}\n🆔{CHANNEL_ID}"
     return "\n".join(clean)
 
 

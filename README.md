@@ -32,7 +32,7 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
    - Set an application root, e.g.:  
      ```
      /home/<username>/trending_bot
-     ```
+     ```  
    - Save the project.
 
 2. **Upload the project files** into that directory.
@@ -45,31 +45,33 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
    ```
 
-4. **Make the script executable** (optional if running via cron only):
+4. **Set up cron job (cPanel):**  
+   - Open **cPanel → Cron Jobs**.  
+   - Add a new cron job with the following settings:  
 
-   ```bash
-   chmod 755 trending_bot.py
-   ```
+     * **Minute:** `0`  
+     * **Hour:** `*`  
+     * **Day:** `*`  
+     * **Month:** `*`  
+     * **Weekday:** `*`  
+     * **Command:**  
+       ```bash
+       /opt/alt/python38/bin/python3.8 /home/<username>/trending_bot/trending_bot.py >> /home/<username>/trending_bot/trending_bot.log 2>&1
+       ```
 
-5. **Test manually**:
-
-   ```bash
-   /opt/alt/python38/bin/python3.8 /home/<username>/trending_bot/trending_bot.py
-   ```
+   This will run the bot **once every hour at minute 0** and save logs in `trending_bot.log`.
 
 ---
 
-## Installation on VPS
+## Installation on VPS (SSH)
 
-1. **Clone the repository**:
-
+1. **Clone the repository:**  
    ```bash
    git clone https://github.com/TBmohammad/Github_FA.git
    cd Github_FA
    ```
 
-2. **Create `.env` file**:
-
+2. **Create `.env` file:**  
    ```bash
    nano .env
    ```
@@ -80,26 +82,22 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
    ```
 
-3. **Make the script executable**:
-
+3. **Make the script executable:**  
    ```bash
    chmod +x trending_bot.py
    ```
 
-4. **Run manually**:
-
+4. **Run manually:**  
    ```bash
    python3 trending_bot.py
    ```
 
-5. **Set up cron job** (Linux crontab):
-
+5. **Set up cron job (Linux crontab):**  
    ```bash
    crontab -e
    ```
 
-   Add this line:
-
+   Add this line:  
    ```cron
    0 * * * * /usr/bin/python3 /home/<username>/Github_FA/trending_bot.py >> /home/<username>/Github_FA/trending_bot.log 2>&1
    ```
@@ -108,14 +106,12 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
 
 ## Logs
 
-* All output and errors are appended to:
-
+* All output and errors are appended to:  
   ```
   /home/<username>/trending_bot/trending_bot.log
   ```
 
-* View logs:
-
+* View logs:  
   ```bash
   cat /home/<username>/trending_bot/trending_bot.log
   ```
@@ -126,3 +122,4 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
 
 * On **cPanel shared hosting**, always use `/opt/alt/python38/bin/python3.8`.  
 * On **VPS/SSH**, you can use `/usr/bin/python3`.  
+* For security, keep `.env` outside `public_html` on cPanel.  

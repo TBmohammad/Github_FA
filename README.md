@@ -122,4 +122,3 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
 
 * On **cPanel shared hosting**, always use `/opt/alt/python38/bin/python3.8`.  
 * On **VPS/SSH**, you can use `/usr/bin/python3`.  
-* For security, keep `.env` outside `public_html` on cPanel.  

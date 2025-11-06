@@ -1,226 +1,228 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-GitHub Trending → DeepSeek Caption → Telegram Bot
+GitHub Trending → DeepSeek → Telegram
 ------------------------------------------------
 Repository:
 https://github.com/TBmohammad/Github_FA
 """
 
 import os
+import re
 import json
+import time
 import urllib.request
-import urllib.error
 from datetime import datetime
 from pathlib import Path
 
-# ---------- Load .env ----------
-def load_env_file(path=None):
+# ---------- .env Loader ----------
+def load_env(path=None):
     if path is None:
-        path = Path(__file__).parent / ".env" 
+        path = Path(__file__).parent / ".env"
     if not os.path.exists(path):
-        print(f"[WARN] .env file not found at: {path}")
+        print("[⚠️] .env file not found, using defaults.")
         return
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith("#"):
+            if not line or line.startswith("#") or "=" not in line:
                 continue
-            if "=" not in line:
-                print(f"[SKIP] invalid line in .env: {line}")
-                continue
-            key, value = line.split("=", 1)
+            key, val = line.split("=", 1)
             key = key.strip()
-            value = value.strip()
-            os.environ[key] = value
-            print(f"[ENV] {key} loaded")
+            val = val.strip().strip('"').strip("'")
+            os.environ[key] = val
 
-load_env_file()
+load_env()
 
 # ---------- Config ----------
-BOT_TOKEN    = os.getenv("TG_BOT_TOKEN")
-CHANNEL_ID   = os.getenv("TG_CHANNEL_ID")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
-
-print("DEBUG BOT_TOKEN   =", BOT_TOKEN)
-print("DEBUG CHANNEL_ID  =", CHANNEL_ID)
-print("DEBUG DEEPSEEK_KEY=", DEEPSEEK_KEY)
-
-SEEN_FILE    = Path(__file__).parent / "link.txt"
-TRENDING_URL = "https://github-trending-api.de.a9sapp.eu/repositories?since=daily"
+BOT_TOKEN    = os.getenv("TG_BOT_TOKEN", "")
+CHANNEL_ID   = os.getenv("TG_CHANNEL_ID", "")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_KEY", os.getenv("DEEPSEEK_API_KEY", ""))
+MAX_POSTS    = int(os.getenv("MAX_POSTS", 1))
+TRENDING_URL = os.getenv("TRENDING_URL", "https://github.com/trending")
 DEESEEK_URL  = "https://api.deepseek.com/chat/completions"
+SEEN_FILE    = Path(__file__).parent / "link.txt"
 
+# ---------- Logging ----------
+def log(msg):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# ---------- Utilities ----------
-def http_json_get(url, timeout=15):
+# ---------- HTTP Utils ----------
+def http_get(url, headers=None, timeout=20):
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        req = urllib.request.Request(url, headers=headers or {"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout) as res:
             if res.status >= 400:
                 return None
-            return json.loads(res.read().decode("utf-8"))
-    except Exception:
+            return res.read().decode("utf-8")
+    except Exception as e:
+        log(f"⚠️ GET failed: {e}")
         return None
 
 
-def http_json_post(url, payload, headers=None, timeout=30):
+def http_post_json(url, payload, headers=None, timeout=30):
     try:
         data = json.dumps(payload).encode("utf-8")
         req_headers = {"Content-Type": "application/json"}
         if headers:
             req_headers.update(headers)
-        req = urllib.request.Request(url, data=data, headers=req_headers, method="POST")
+        req = urllib.request.Request(url, data=data, headers=req_headers)
         with urllib.request.urlopen(req, timeout=timeout) as res:
             if res.status >= 400:
                 return None
             return json.loads(res.read().decode("utf-8"))
-    except Exception:
+    except Exception as e:
+        log(f"⚠️ POST failed: {e}")
         return None
 
 
+# ---------- File Utils ----------
 def read_seen(file: Path):
-    if not file.exists():
-        return []
-    return [x.strip() for x in file.read_text(encoding="utf-8").splitlines() if x.strip()]
+    return file.read_text(encoding="utf-8").splitlines() if file.exists() else []
 
 
-def append_seen(file: Path, link: str):
+def append_seen(file: Path, url: str):
     with open(file, "a", encoding="utf-8") as f:
-        f.write(link + "\n")
+        f.write(url.strip() + "\n")
 
 
-def make_github_link(name: str) -> str:
-    s = name.strip()
-    if not s:
-        return "https://github.com/"
-    if s.startswith("http://") or s.startswith("https://"):
-        parts = s.split("/")
-        seg = [p for p in parts if p]
-        if len(seg) >= 2:
-            return f"https://github.com/{seg[-2]}/{seg[-1]}"
-        elif len(seg) == 1:
-            return f"https://github.com/{seg[-1]}"
-        else:
-            return "https://github.com/"
-    return "https://github.com/" + s.strip("/")
+# ---------- GitHub Trending ----------
+def get_trending():
+    log("🌐 Fetching GitHub trending...")
+    html = http_get(TRENDING_URL)
+    if not html:
+        log("❌ Failed to fetch trending page.")
+        return []
+
+    html = re.sub(r"\s+", " ", html)
+    repos = re.findall(r'<a[^>]+href="(/[^/]+/[^/"]+)"[^>]*data-view-component="true"', html)
+    results = []
+    for path in repos:
+        if not re.match(r"^/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", path):
+            continue
+        author, name = path.strip("/").split("/", 1)
+        results.append({
+            "author": author,
+            "name": name,
+            "url": f"https://github.com{path}"
+        })
+    log(f"✅ Found {len(results)} trending repos.")
+    return results[:15]
 
 
-# ---------- Core logic ----------
-def pick_trending(data, seen):
-    if not data:
-        return None
-    hour = datetime.now().hour
-    h = (hour - 1) if hour <= 16 else (hour - 17)
-    count = len(data)
-    for i in range(16):
-        x = data[(h + i) % count]
-        author = x.get("author", "")
-        name   = x.get("name", "")
-        n      = f"{author}/{name}".strip("/")
-        l      = x.get("url") or x.get("href", "")
-        p      = x.get("avatar", "")
-        if l and l not in seen:
-            return n, l, p
-    return None
+# ---------- Smart Image Finder ----------
+def find_image(repo_url, author):
+    log(f"🖼 Finding image for {repo_url}")
+    html = http_get(repo_url)
+    if not html:
+        return f"https://github.com/{author}.png"
+
+    imgs = re.findall(r'<img[^>]+src="([^"]+\.(?:png|jpg|jpeg|webp|gif))"', html, flags=re.I)
+    for img in imgs:
+        if img.startswith("/"):
+            img = "https://github.com" + img
+        if img.startswith("http"):
+            return img
+    return f"https://github.com/{author}.png"
 
 
-def ds_tool_intro(name: str, api_key: str) -> str:
-    if not name.strip():
-        return "معرفی ابزار جدید:\nتوضیحات:\nدسته بندی:\nلینک گیت هاب:"
+# ---------- DeepSeek Caption ----------
+def make_caption(name):
+    repo_name = name.split("/")[-1]
 
-    system = (
-        "فقط و فقط در این قالب خروجی بده و هیچ چیز دیگری اضافه نکن:\n"
-        "معرفی ابزار جدید: (اسم)\n"
-        "توضیحات:\n"
-        "دسته بندی:\n"
-        "قوانین:\n"
-        "1) توضیحات: یک جملهٔ کوتاه و کاربردی (حداکثر 40 کلمه).\n"
-        "2) دسته بندی: آزاد است و بر اساس ماهیت ابزار تعیین شود.\n"
-        "3) هیچ چیز اضافه (ایموجی/متن اضافی/پیشوند/پسوند) ننویس."
+    system_prompt = (
+        "در قالب زیر پاسخ بده و هیچ متن اضافی ننویس:\n"
+        "معرفی ابزار جدید: <نام ابزار>\n"
+        "توضیحات: <توضیح کوتاه فارسی>\n"
+        "دسته بندی: <یکی از موارد: توسعه نرم‌افزار، هوش مصنوعی، DevOps، فریم‌ورک، کتابخانه، اپلیکیشن، سایر>"
     )
-
-    user = f"نام ابزار: {name}\nهمین قالب را پر کن."
 
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"نام ابزار: {repo_name}"}
         ],
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "max_tokens": 70,
-        "stream": False,
+        "temperature": 0.8,
+        "max_tokens": 150
     }
 
-    resp = http_json_post(
-        DEESEEK_URL, payload, {"Authorization": f"Bearer {api_key}"}
+    res = http_post_json(DEESEEK_URL, payload, {"Authorization": f"Bearer {DEEPSEEK_KEY}"})
+    if not res:
+        return fallback_caption(repo_name)
+
+    try:
+        txt = res["choices"][0]["message"]["content"].strip()
+    except Exception:
+        txt = ""
+
+    if not txt or "توضیحات:" not in txt:
+        txt = fallback_caption(repo_name)
+
+    txt = re.sub(r"^معرفی ابزار جدید[^\n]*\n?", "", txt, flags=re.M)
+    return f"معرفی ابزار جدید: {repo_name}\n{txt}\n🔗 https://github.com/{name}\n🆔 {CHANNEL_ID}"
+
+
+def fallback_caption(repo_name):
+    return (
+        f"معرفی ابزار جدید: {repo_name}\n"
+        f"توضیحات: اطلاعاتی در دسترس نیست.\n"
+        f"دسته بندی: نامشخص\n"
+        f"🔗 https://github.com/{repo_name}\n🆔 {CHANNEL_ID}"
     )
 
-    text = ""
-    try:
-        text = resp["choices"][0]["message"]["content"]
-    except Exception:
-        pass
 
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    keys = ["معرفی ابزار جدید:", "توضیحات:", "دسته بندی:", "لینک گیت هاب:"]
-    clean = []
-    for k in keys:
-        found = next((ln for ln in lines if ln.startswith(k)), None)
-        clean.append(found or (k + " "))
-
-    clean[3] = f"لینک گیت هاب:\n{make_github_link(name)}\n🆔{CHANNEL_ID}"
-    return "\n".join(clean)
-
-
-def telegram_send(bot_token, chat_id, caption, photo_url=None):
+# ---------- Telegram ----------
+def telegram_send(caption, photo=None):
     import urllib.parse
     try:
-        if photo_url:
-            url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
-            payload = {"chat_id": chat_id, "photo": photo_url, "caption": caption}
+        if photo:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+            data = urllib.parse.urlencode({"chat_id": CHANNEL_ID, "photo": photo, "caption": caption}).encode()
         else:
-            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            payload = {"chat_id": chat_id, "text": caption}
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            data = urllib.parse.urlencode({"chat_id": CHANNEL_ID, "text": caption}).encode()
 
-        data = urllib.parse.urlencode(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST")
         with urllib.request.urlopen(req, timeout=20) as res:
             return res.status < 400
-    except Exception:
+    except Exception as e:
+        log(f"⚠️ Telegram error: {e}")
         return False
 
 
 # ---------- Main ----------
 def main():
-    if not BOT_TOKEN or not CHANNEL_ID or not DEEPSEEK_KEY:
-        print("Missing env vars: TG_BOT_TOKEN, TG_CHANNEL_ID, DEEPSEEK_API_KEY", flush=True)
-        return
-
-    data = http_json_get(TRENDING_URL)
-    if not data:
-        print("Trending API failed or returned empty", flush=True)
+    log("🚀 Script started")
+    repos = get_trending()
+    if not repos:
         return
 
     seen = read_seen(SEEN_FILE)
-    pick = pick_trending(data, seen)
-    if not pick:
-        print("No new item to post.", flush=True)
-        return
+    count = 0
+    for repo in repos:
+        if repo["url"] not in seen:
+            name = f"{repo['author']}/{repo['name']}"
+            log(f"📦 New repo detected: {name}")
+            caption = make_caption(name)
+            image = find_image(repo["url"], repo["author"])
 
-    repo_name, link, photo = pick
+            ok = telegram_send(caption, image)
+            if not ok:
+                ok = telegram_send(caption)
 
-    caption = ds_tool_intro(repo_name, DEEPSEEK_KEY)
+            if ok:
+                append_seen(SEEN_FILE, repo["url"])
+                log(f"✅ Posted successfully: {name}")
+            else:
+                log(f"❌ Telegram failed for {name}")
 
-    ok = telegram_send(BOT_TOKEN, CHANNEL_ID, caption, photo or None)
-    if not ok:
-        ok = telegram_send(BOT_TOKEN, CHANNEL_ID, caption, None)
+            count += 1
+            if count >= MAX_POSTS:
+                break
+            time.sleep(5)
 
-    if ok:
-        append_seen(SEEN_FILE, link)
-        print(f"Posted: {repo_name}", flush=True)
-    else:
-        print("Telegram send failed", flush=True)
+    log(f"🏁 Script finished ({count} posts).")
 
 
 if __name__ == "__main__":

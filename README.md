@@ -43,6 +43,8 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
    TG_BOT_TOKEN=123456789:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
    TG_CHANNEL_ID=@MyChannel
    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+   TRENDING_URL=https://github.com/trending
+   MAX_POSTS=1
    ```
 
 4. **Set up cron job (cPanel):**  
@@ -80,7 +82,6 @@ A lightweight **Python 3.8+** script that automatically fetches trending GitHub 
    TG_BOT_TOKEN=123456789:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
    TG_CHANNEL_ID=@MyChannel
    DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
-   TG_BOT_TOKEN=1234:sas
    TRENDING_URL=https://github.com/trending
    MAX_POSTS=1
    ```
